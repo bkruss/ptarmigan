@@ -70,6 +70,8 @@ struct CollideOptions {
     classical: bool,
     /// Correct classical spectrum using Gaunt factor
     gaunt_factor: bool,
+    // Use colinear photon emission
+    colinear_emission: bool,
 }
 
 /// Propagates a single particle through a region of EM field, returning a Shower containing
@@ -115,17 +117,27 @@ fn collide<F: Field, R: Rng>(field: &F, incident: Particle, rng: &mut R, current
                     if let Some((k, pol, u_prime, a_eff)) = field.radiate(r, u, dt_actual, rng, mode) {
                         let id = *current_id;
                         *current_id = *current_id + 1;
+
+                        let (k_scatter, u_post_scatter) = if options.colinear_emission {
+                            let u_norm = ThreeVector::from(u).normalize();
+                            let k_scatter = k[0]*u_norm;
+                            let k_scatter = FourVector::lightlike(k_scatter[0], k_scatter[1], k_scatter[2]);
+                            (k_scatter, u - k_scatter)
+                        } else {
+                            (k, u_prime)
+                        };
+
                         let photon = Particle::create(Species::Photon, r)
                             .with_payload(a_eff)
                             .with_weight(pt.weight())
                             .with_id(id)
                             .with_parent_id(pt.id())
                             .with_polarization(pol)
-                            .with_normalized_momentum(k);
+                            .with_normalized_momentum(k_scatter);
                         primaries.push(photon);
 
                         if electron_recoils {
-                            u = u_prime;
+                            u = u_post_scatter;
                         }
 
                         pt.update_interaction_count(1.0);
@@ -245,6 +257,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let finite_bandwidth = input.read("control:bandwidth_correction").unwrap_or(false);
     let rr = input.read("control:radiation_reaction").unwrap_or(true);
     let t_stop = input.read("control:stop_at_time").unwrap_or(std::f64::INFINITY);
+    let colinear_emission = input.read("control:colinear_emission").unwrap_or(false);
 
     let (classical, gaunt_factor) = input.read::<String, _>("control:classical")
         .and_then(|s| match s.as_str() {
@@ -512,7 +525,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|spec| DistributionFunction::load(spec, |s| input.evaluate(s)))
         .collect::<Result<Vec<_>,_>>()?;
-    
+
     let gospec: Vec<String> = input.read("output:photon")
         .or_else(|e| match e.kind() {InputErrorKind::Location => Ok(vec![]), _ => Err(e)})?;
     let gospec: Vec<DistributionFunction> = gospec
@@ -586,7 +599,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Simulation building and running starts here
     for (run, a0_v) in a0_values.iter().enumerate() {
-        let a0: f64 = *a0_v; 
+        let a0: f64 = *a0_v;
         // Rare event sampling for pair creation
         let pair_rate_increase = input.read::<f64,_>("control:increase_pair_rate_by")
             // if increase is not specified at all, default to unity
@@ -718,6 +731,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             discard_bg_ph,
             rr,
             tracking_photons,
+            colinear_emission,
             classical,
             gaunt_factor,
         };
@@ -800,7 +814,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             if !estats.is_empty() || !gstats.is_empty() || !pstats.is_empty() {
                 use std::fs::File;
                 use std::io::Write;
-                let filename = format!("{}{}{}{}stats.txt", output_dir, if output_dir.is_empty() {""} else {"/"}, 
+                let filename = format!("{}{}{}{}stats.txt", output_dir, if output_dir.is_empty() {""} else {"/"},
                                                                       current_ident, if current_ident.is_empty() {""} else {"_"});
                 let mut file = File::create(filename)?;
                 for stat in &estats {
@@ -819,7 +833,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             #[cfg(feature = "hdf5-output")]
             OutputMode::Hdf5 => {
                 use hdf5_writer::GroupHolder;
-                let filename = format!("{}{}{}{}particles.h5", output_dir, if output_dir.is_empty() {""} else {"/"}, 
+                let filename = format!("{}{}{}{}particles.h5", output_dir, if output_dir.is_empty() {""} else {"/"},
                                                                current_ident, if current_ident.is_empty() {""} else {"_"});
                 let file = hdf5_writer::ParallelFile::create(&world, &filename)?;
 
@@ -853,6 +867,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .new_dataset("classical")?.write(&classical)?
                     .new_dataset("pair_creation")?.write(&tracking_photons)?
                     .new_dataset("lcfa")?.write(&using_lcfa)?
+                    .new_dataset("colinear_emission")?.write(&colinear_emission)?
                     .new_dataset("rng_seed")?.write(&rng_seed)?
                     .new_dataset("increase_pair_rate_by")?.write(&pair_rate_increase)?
                     .new_dataset("bandwidth_correction")?.write(&finite_bandwidth)?

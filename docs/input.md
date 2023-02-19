@@ -12,6 +12,7 @@ Physics:
 A modified classical model can be chosen by setting `classical` to `gaunt_factor_corrected`.
 In this model the instantaneous radiated power is reduced by the Gaunt factor g(χ) and the upper bound on the photon spectrum corrected to the electron energy.
 This option is only available under the LCFA.
+* `colinear_emission` (optional, default = `false`): if `true`, photons are set to propagate in the direction that the parent particle is traveling at the time of photon generation. 
 * `lcfa` (optional, default = `false`): if `true`, use rates calculated in the locally constant, crossed fields approximation to model QED processes.
 * `bandwidth_correction` (optional, default = `false`, ignored if `lcfa: true`): if `true`, correct the photon momentum sampling algorithm to account for the laser pulse's finite bandwidth. Has no effect if LCFA rates are selected.
 
