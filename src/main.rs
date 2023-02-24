@@ -865,6 +865,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .new_dataset("dt_multiplier")?.write(&dt_multiplier)?
                     .new_dataset("radiation_reaction")?.write(&rr)?
                     .new_dataset("classical")?.write(&classical)?
+                    .new_dataset("gaunt_factor")?.write(&gaunt_factor)?
                     .new_dataset("pair_creation")?.write(&tracking_photons)?
                     .new_dataset("lcfa")?.write(&using_lcfa)?
                     .new_dataset("colinear_emission")?.write(&colinear_emission)?
