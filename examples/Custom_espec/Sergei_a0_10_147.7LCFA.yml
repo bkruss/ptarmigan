@@ -17,7 +17,7 @@ beam:
   length: 0.0 * micro
   rms_divergence: 0.0 * milli
   custom_spectrum: true
-  spectrum_file: /Users/brandon/Documents/GitHub/ptarmigan/examples/Custom_espec/Sergei_smoothed_lcfa.csv
+  spectrum_file: /Custom_espec/Sergei_smoothed_lcfa.csv
 output:
   dump_all_particles: hdf5
   coordinate_system: beam
