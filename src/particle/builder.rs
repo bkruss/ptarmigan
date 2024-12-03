@@ -10,6 +10,7 @@ pub struct BeamBuilder {
     num: usize,
     pub weight: f64,
     normal_espec: Option<bool>,
+    custom_espec: Option<bool>,
     pub gamma: f64,
     pub sigma: f64,
     pub gamma_min: f64,
@@ -32,6 +33,7 @@ impl BeamBuilder {
             num,
             weight: 1.0,
             normal_espec: None,
+            custom_espec: None,
             gamma: 0.0,
             sigma: 0.0,
             gamma_min: 0.0,
@@ -65,6 +67,7 @@ impl BeamBuilder {
     pub fn with_normal_energy_spectrum(&self, gamma: f64, sigma: f64) -> Self {
         BeamBuilder {
             normal_espec: Some(true),
+            custom_espec: Some(false),
             gamma,
             sigma,
             ..*self
@@ -74,8 +77,17 @@ impl BeamBuilder {
     pub fn with_bremsstrahlung_spectrum(&self, gamma_min: f64, gamma_max: f64) -> Self {
         BeamBuilder {
             normal_espec: Some(false),
+            custom_espec: Some(false),
             gamma_min,
             gamma_max,
+            ..*self
+        }
+    }
+
+    pub fn with_custom_spectrum(&self) -> Self {
+        BeamBuilder {
+            normal_espec: Some(false),
+            custom_espec: Some(true),
             ..*self
         }
     }
@@ -161,6 +173,11 @@ impl BeamBuilder {
     }
 
     #[cfg(feature = "hdf5-output")]
+    pub fn has_custom_spec(&self) -> bool {
+        self.custom_espec.map(|b| !b).unwrap_or(false)
+    }
+
+    #[cfg(feature = "hdf5-output")]
     pub fn radius(&self) -> (f64, f64) {
         match self.radial_dstr {
             RadialDistribution::Normal { sigma_x, sigma_y: _ } => (sigma_x, std::f64::INFINITY),
@@ -169,8 +186,42 @@ impl BeamBuilder {
         }
     }
 
-    pub fn build<R: Rng>(&self, rng: &mut R) -> Vec<Particle> {
+    pub fn build<R: Rng>(&self, rng: &mut R, spectrum_file: String) -> Vec<Particle> {
         let normal_espec = self.normal_espec.expect("primary energy spectrum not specified");
+        let custom_espec = self.custom_espec.expect("custom energy spectrum not specified");
+        let mut gamma_ax: Vec<f64>;
+        let mut n_ax: Vec<f64>;
+        let max_n_ax: f64;
+
+        if custom_espec {
+            use std::fs::File;
+            use std::path::Path;
+
+            let file_path = Path::new(&spectrum_file);
+            let display = file_path.display();
+
+            let file = match File::open(&file_path) {
+                Err(why) => panic!("couldn't open {}: {}", display, why),
+                Ok(file) => file,
+            };
+
+            let mut rdr = csv::Reader::from_reader(file);
+            gamma_ax = Vec::new();
+            n_ax = Vec::new();
+
+            for result in rdr.records() {
+
+                let record = result.expect("record");
+                gamma_ax.push(record[0].parse().unwrap());
+                n_ax.push(record[1].parse().unwrap());
+            }
+            max_n_ax = n_ax.iter().cloned().fold(0./0., f64::max);
+        } else {
+            gamma_ax = Vec::new();
+            n_ax = Vec::new();
+            max_n_ax = 1.0;
+        }
+
         (0..self.num).into_iter()
             .map(|i| {
                 // Sample gamma from relevant distribution
@@ -185,6 +236,22 @@ impl BeamBuilder {
                         let dz = self.sigma_z * n0;
                         let gamma = self.gamma + self.sigma * n2;
                         if gamma > 1.0 {
+                            break (gamma, dz);
+                        }
+                    }
+                } else if custom_espec {
+                    loop {
+                        let ax_length = gamma_ax.len() as f64;
+                        let x = rng.gen::<f64>() * (ax_length - 1.0);
+                        let x_int = x as i64;
+                        let x_rem = x - (x_int as f64);
+                        let x_ind = x_int as usize;
+                        //let x = (rng.gen::<f64>() * (ax_length - 1.0)).round() as usize;
+                        let u = rng.gen::<f64>() * max_n_ax;
+
+                        if u <= (n_ax[x_ind] + (n_ax[x_ind + 1] - n_ax[x_ind]) * x_rem) {
+                            let dz = self.sigma_z * rng.sample::<f64,_>(StandardNormal);
+                            let gamma = gamma_ax[x_ind] + (gamma_ax[x_ind + 1] - gamma_ax[x_ind]) * x_rem;
                             break (gamma, dz);
                         }
                     }

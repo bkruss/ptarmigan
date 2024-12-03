@@ -499,6 +499,13 @@ fn ptarmigan_main<C: Communicator>(world: C) -> Result<(), Box<dyn Error>> {
         );
     }
 
+    let use_custom_spectrum = input.read("beam:custom_spectrum").unwrap_or(false);
+    let spectrum_file = if use_custom_spectrum {
+        input.read::<String,_>("beam:spectrum_file")?
+    } else {
+        "N/A".to_string()
+    };
+
     let beam = if input.read::<String, _>("beam:from_hdf5:file").is_ok() {
         #[cfg(not(feature = "hdf5-output"))] {
             report!(Diagnostic::Error, id == 0, "cannot import particles from file (Ptarmigan not compiled with HDF5 support).");
@@ -674,6 +681,8 @@ fn ptarmigan_main<C: Communicator>(world: C) -> Result<(), Box<dyn Error>> {
 
         let builder = if use_brem_spec {
             builder.with_bremsstrahlung_spectrum(gamma_min, gamma)
+        } else if use_custom_spectrum {
+            builder.with_custom_spectrum()
         } else {
             builder.with_normal_energy_spectrum(gamma, sigma)
         };
@@ -912,7 +921,7 @@ fn ptarmigan_main<C: Communicator>(world: C) -> Result<(), Box<dyn Error>> {
         let primaries = match beam {
             BeamParameters::FromRng { builder } => {
                 let initial_z = laser.ideal_initial_z() + 3.0 * builder.sigma_z;
-                builder.with_initial_z(initial_z).build(&mut rng)
+                builder.with_initial_z(initial_z).build(&mut rng, spectrum_file.clone())
             },
             #[cfg(feature = "hdf5-output")]
             BeamParameters::FromHdf5 { ref loader } => {
@@ -1273,6 +1282,7 @@ fn ptarmigan_main<C: Communicator>(world: C) -> Result<(), Box<dyn Error>> {
                             .new_dataset("charge")?.with_unit("C")?.write(&charge)?
                             .new_dataset("gamma")?.with_unit("1")?.write(&builder.gamma)?
                             .new_dataset("sigma")?.with_unit("1")?.write(&builder.sigma)?
+                            .new_dataset("custom_spectrum")?.write(&builder.has_custom_spec())?
                             .new_dataset("bremsstrahlung_source")?.write(&builder.has_brem_spec())?
                             .new_dataset("gamma_min")?.with_unit("1")?.with_condition(|| builder.has_brem_spec()).write(&builder.gamma_min)?
                             .new_dataset("radius")?.with_unit(units.length.name())?.write(&radius.convert(&units.length))?
